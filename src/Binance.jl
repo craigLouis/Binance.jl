@@ -45,7 +45,7 @@ function hmac(key::Vector{UInt8}, msg::Vector{UInt8}, hash, blocksize::Int=64)
 
     if pad > 0
         resize!(key, blocksize)
-        key[end - pad + 1:end] = 0
+        key[end - pad + 1:end] .= 0
     end
 
     o_key_pad = key .⊻ 0x5c
@@ -57,6 +57,7 @@ end
 function doSign(queryString, apiSecret)
     bytes2hex(hmac(Vector{UInt8}(apiSecret), Vector{UInt8}(queryString), SHA.sha256))
 end
+
 
 
 # function HTTP response 2 JSON
@@ -247,9 +248,9 @@ end
 # Websockets functions
 
 function wsFunction(channel::Channel, ws::String, symbol::String)
-    HTTP.WebSockets.open(string(BINANCE_API_WS, lowercase(symbol), ws); verbose=false) do io
-      while !eof(io);
-        put!(channel, r2j(readavailable(io)))
+    HTTP.WebSockets.open(string(BINANCE_API_WS, lowercase(symbol), ws); verbose=false) do ws
+      for msg in ws
+        put!(channel, r2j(msg))
     end
   end
 end
@@ -355,23 +356,25 @@ function wsUserData(channel::Channel, apiKey, listenKey; reconnect=true)
     Timer(keepAlive, 1800; interval = 1800)
 
     error = false;
-    while !error
-        try
-            HTTP.WebSockets.open(string(Binance.BINANCE_API_WS, listenKey); verbose=false) do io
-                while !eof(io);
-                    put!(channel, r2j(readavailable(io)))
+
+    while isopen(channel)
+        while !error
+            try
+                HTTP.WebSockets.open(string(BINANCE_API_WS, listenKey); verbose=false) do ws
+                    for msg in ws
+                        put!(channel, r2j(msg))
+                    end
                 end
+            catch x
+                println(x)
+                error = true; 
             end
-        catch x
-            println(x)
-            error = true; 
+        end
+
+        if reconnect
+            wsUserData(channel, apiKey, openUserData(apiKey))
         end
     end
-
-    if reconnect
-        wsUserData(channel, apikey, openUserData(apiKey))
-    end
-
 end
 
 # helper
